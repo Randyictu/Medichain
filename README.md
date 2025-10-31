@@ -93,7 +93,8 @@ All transactions are logged in the blockchain ledger for transparency and accoun
 The MediLink Cameroon system architecture integrates blockchain, distributed storage, and web-based interfaces into a unified framework.
 
 Figure 1: MediLink System Architecture
-<img width="1536" height="1024" alt="Système de gestion de santé blockchain" src="https://github.com/user-attachments/assets/c42a3712-7ce2-446e-a2cf-db79719122cd" />
+<img width="1536" height="1024" alt="Système de gestion de santé blockchain" src="https://github.com/user-attachments/assets/79507e0b-aec3-4ddb-88fd-30a4096f92dd" />
+
 
 (Description: The architecture consists of three main layers—application layer, blockchain layer, and distributed storage layer. The application layer contains the Next.js frontend and Context API state management. The blockchain layer includes smart contracts written in Solidity and deployed via Hardhat. The distributed storage layer connects to IPFS for large data files. Each hospital, pharmacy, and clinic operates as a blockchain node in a permissioned network.)
 
@@ -127,7 +128,9 @@ Pharmaceutical Verification Module
 The pharmaceutical component combats counterfeit drug distribution by registering every approved medication and licensed pharmacy on the blockchain. When a doctor issues a prescription, the details are encoded into a smart contract that can only be fulfilled by authorized pharmacies. Each drug’s transaction—from manufacturer to patient—is traceable on-chain, ensuring full transparency.
 
 Figure 2: Core Functional Modules of MediLink Cameroon
-<img width="1536" height="1024" alt="ChatGPT Image 31 oct  2025, 21_18_13" src="https://github.com/user-attachments/assets/2b0793db-3d12-438a-b8d5-d2d560b65156" />
+<img width="1536" height="1024" alt="Image 31 oct  2025, 21_18_13" src="https://github.com/user-attachments/assets/dd46a923-b9c9-47f4-b031-b356e34a45fc" />
+
+
 
 (Description: This diagram depicts the three modules—appointment scheduling, doctor-patient consultation, and pharmacy verification—connected via smart contracts to the blockchain network.)
 
@@ -170,7 +173,8 @@ During deployment, Hardhat scripts automatically compile contracts and deploy th
 The front-end application is designed using Next.js, a React-based framework that supports server-side rendering for performance optimization. It provides a fast, accessible interface for all user roles—patients, doctors, and pharmacies. The Context API manages global application state, enabling different components (such as appointment forms, dashboards, and chat interfaces) to access blockchain data consistently.
 
 Figure 3: Frontend Data Flow Diagram
-<img width="1536" height="1024" alt="ChatGPT Image 31 oct  2025, 21_20_27" src="https://github.com/user-attachments/assets/b952bfc7-06e5-4d05-ad02-f0815c0dfa31" />
+<img width="1536" height="1024" alt="Image 31 oct  2025, 21_20_27" src="https://github.com/user-attachments/assets/1065fab4-e46b-4eb8-864e-564918dc6d68" />
+
 
 (Description: The diagram shows the interaction between Next.js components and the blockchain via MetaMask and Context API. State changes trigger smart contract functions, while blockchain events update the interface in real-time.)
 
@@ -191,7 +195,8 @@ The frontend communicates with smart contracts through ethers.js, enabling async
 While blockchain ensures data integrity, it is not suitable for storing large data due to cost and scalability limitations. MediLink Cameroon overcomes this by integrating InterPlanetary File System (IPFS) for distributed file storage. IPFS stores files across multiple peer nodes and generates a unique content identifier (CID) hash for each file. This hash is then recorded on the blockchain.
 
 Figure 4: Blockchain-IPFS Data Flow
-<img width="1536" height="1024" alt="ChatGPT Image 31 oct  2025, 21_23_21" src="https://github.com/user-attachments/assets/e7e2e94b-5a8c-45f2-a71f-5299d5beaf6b" />
+<img width="1536" height="1024" alt="Image 31 oct  2025, 21_23_41" src="https://github.com/user-attachments/assets/d26c3124-76ac-4add-873e-6e3489d15881" />
+
 
 (Description: The figure illustrates how patient data, consultation summaries, and prescriptions are stored on IPFS while their hashes are anchored on the Ethereum blockchain for verification.)
 
@@ -336,7 +341,8 @@ Smart Contract Language: Solidity
 Distribution Mechanism: Controlled via vesting contracts for stakeholders (hospitals, developers, and early adopters)
 
 Figure 5 : Token Flow in the MediLink Ecosystem
-<img width="1536" height="1024" alt="ChatGPT Image 31 oct  2025, 21_28_20" src="https://github.com/user-attachments/assets/151dabdd-e768-4cf6-9e30-482fb7a5355a" />
+<img width="1536" height="1024" alt="Image 31 oct  2025, 21_28_20" src="https://github.com/user-attachments/assets/de426111-3247-4dcd-aa5b-f383571160ed" />
+
 
 (Description: The figure shows MDLK tokens circulating between patients, doctors, pharmacies, and governance entities through smart contracts for payments, reputation rewards, and governance voting.)
 
@@ -447,8 +453,9 @@ The answer is displayed to the user with clear explanations, dosage recommendati
 
 Every AI response session is hashed and optionally logged on-chain for transparency, preserving data privacy by excluding sensitive user details.
 
-Figure 7: AI Integration Workflow in MediLink
-<img width="1024" height="1536" alt="ChatGPT Image 31 oct  2025, 21_38_18" src="https://github.com/user-attachments/assets/65dc062d-aa64-4287-be74-b945ee78803a" />
+Figure 6: AI Integration Workflow in MediLink
+<img width="1024" height="1536" alt="Image 31 oct  2025, 21_38_18" src="https://github.com/user-attachments/assets/c20fffd5-e298-4a26-a8d6-9f9de674aaf9" />
+
 
 (Description: The figure shows the interaction between the user interface, AI processing engine, blockchain verification layer, and external medical databases. AI responses are validated against verified data sources before being displayed.)
 
