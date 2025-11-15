@@ -21,15 +21,14 @@ transfer = network.initiate_file_transfer(
 if transfer:
     print("Transfer initiated:", transfer.file_id)
 
-    while True:
-        chunks_done, completed = network.process_file_transfer(
-            "node1", "node2", transfer.file_id, chunks_per_step=3
-        )
-        print(f"Transferred {chunks_done} chunks, completed: {completed}")
+    # Transfer all remaining chunks at once
+    chunks_done, completed = network.process_file_transfer(
+        "node1", "node2", transfer.file_id, chunks_per_step=1000 # larger than total chunks
+    )
+    print(f"Transferred {chunks_done} chunks, completed: {completed}")
 
-        if completed:
-            print("Transfer completed successfully!")
-            break
+    if completed:
+        print("Transfer completed successfully!")
 
     stats = network.get_network_stats()
     print(stats)
