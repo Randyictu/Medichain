@@ -4,51 +4,54 @@ import time
 from collections import defaultdict
 from storage_virtual_node import StorageVirtualNode, FileTransfer, TransferStatus
 
-
 class StorageVirtualNetwork:
     def __init__(self):
         self.nodes: Dict[str, StorageVirtualNode] = {}
-        # transfer_operations maps target_node_id -> file_id -> transfer
         self.transfer_operations: Dict[str, Dict[str, FileTransfer]] = defaultdict(dict)
 
     def add_node(self, node: StorageVirtualNode):
         self.nodes[node.node_id] = node
 
     def connect_nodes(self, node1_id: str, node2_id: str, bandwidth: int):
-        if node1_id in self.nodes and node2_id in self.nodes:
-            self.nodes[node1_id].add_connection(node2_id, bandwidth)
-            self.nodes[node2_id].add_connection(node1_id, bandwidth)
-            return True
-        return False
+        if node1_id not in self.nodes or node2_id not in self.nodes:
+            return False
+
+        ip1 = self.nodes[node1_id].get_ip()
+        ip2 = self.nodes[node2_id].get_ip()
+
+        self.nodes[node1_id].add_connection(ip2, bandwidth)
+        self.nodes[node2_id].add_connection(ip1, bandwidth)
+        return True
 
     def initiate_file_transfer(self, source_node_id: str, target_node_id: str,
-                               file_name: str, file_size: int) -> Optional[FileTransfer]:
+                              file_name: str, file_size: int) -> Optional[FileTransfer]:
 
         if source_node_id not in self.nodes or target_node_id not in self.nodes:
             return None
 
         file_id = hashlib.md5(f"{file_name}-{time.time()}".encode()).hexdigest()
+
         target_node = self.nodes[target_node_id]
 
         transfer = target_node.initiate_file_transfer(
-            file_id, file_name, file_size, source_node_id
+            file_id,
+            file_name,
+            file_size,
+            source_ip=self.nodes[source_node_id].get_ip()
         )
 
         if transfer:
-            # Store by target node, because processing happens at target
             self.transfer_operations[target_node_id][file_id] = transfer
             return transfer
 
         return None
 
     def process_file_transfer(self, source_node_id: str, target_node_id: str,
-                              file_id: str, chunks_per_step: int = 1) -> Tuple[int, bool]:
+                              file_id: str, chunks_per_step: int = 1):
 
-        # Check nodes exist
         if target_node_id not in self.nodes or source_node_id not in self.nodes:
             return 0, False
 
-        # Check if transfer exists
         if file_id not in self.transfer_operations[target_node_id]:
             return 0, False
 
@@ -59,13 +62,16 @@ class StorageVirtualNetwork:
 
         for chunk in transfer.chunks:
             if chunk.status != TransferStatus.COMPLETED and chunks_transferred < chunks_per_step:
-                success = target_node.process_chunk_transfer(file_id, chunk.chunk_id, source_node_id)
-                if not success:
-                    # Stop processing if a chunk fails
+                ok = target_node.process_chunk_transfer(
+                    file_id,
+                    chunk.chunk_id,
+                    self.nodes[source_node_id].get_ip()
+                )
+                if not ok:
                     return chunks_transferred, False
+
                 chunks_transferred += 1
 
-        # Check if transfer is complete
         if transfer.status == TransferStatus.COMPLETED:
             del self.transfer_operations[target_node_id][file_id]
             return chunks_transferred, True
@@ -73,7 +79,7 @@ class StorageVirtualNetwork:
         return chunks_transferred, False
 
     def get_network_stats(self):
-        total_bandwidth = sum(n.bandwidth for n in self.nodes.values())
+        total_bandwidth = sum(n.nic.bandwidth for n in self.nodes.values())
         used_bandwidth = sum(n.network_utilization for n in self.nodes.values())
         total_storage = sum(n.total_storage for n in self.nodes.values())
         used_storage = sum(n.used_storage for n in self.nodes.values())
