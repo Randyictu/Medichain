@@ -1,15 +1,20 @@
-from storage_virtual_network import StorageVirtualNetwork
-from storage_virtual_node import StorageVirtualNode
+# main.py
+import subprocess, time, os
+HERE = os.path.dirname(__file__) or "."
 
-network = StorageVirtualNetwork()
+def start_server():
+    return subprocess.Popen(["python", os.path.join(HERE, "threaded.py"), "--host", "0.0.0.0", "--port", "60000", "--dashboard-port", "8000"])
 
-node1 = StorageVirtualNode("node1", 4, 16, 500*1024*1024, 5*1024*1024, "10.0.0.1", "AA:BB:CC:DD:EE:01")  # 5 MB/s
-node2 = StorageVirtualNode("node2", 8, 32, 1000*1024*1024, 10*1024*1024, "10.0.0.2", "AA:BB:CC:DD:EE:02")  # 10 MB/s
+def start_node(node_id, listen_port):
+    return subprocess.Popen(["python", os.path.join(HERE, "storage.py"), "--node-id", node_id, "--server-host", "127.0.0.1", "--server-port", "60000", "--listen-port", str(listen_port)])
 
-network.add_node(node1)
-network.add_node(node2)
-
-network.connect_nodes("node1", "node2", 5*1024*1024)
-
-# Simulate transfer
-network.simulate_file_transfer("node1", "node2", "large_dataset.zip", 20*1024*1024)  # 20 MB
+if __name__ == "__main__":
+    p_server = start_server()
+    time.sleep(1)
+    procs = []
+    for i,port in enumerate(range(6001, 6006), start=1):
+        nid = f"node{i}"
+        p = start_node(nid, port)
+        procs.append(p)
+        time.sleep(0.5)
+    print("Launched server + 5 nodes. Close this script; processes continue.")
