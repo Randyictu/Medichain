@@ -1,244 +1,305 @@
-# threaded.py
-import socket, threading, argparse, time, os, json
-from common import to_json, ensure_dir, gen_mac, gen_file_id, CHUNK_SIZE, NODES_FILE, FILES_FILE, load_json_file, save_json_file
-from http.server import HTTPServer, BaseHTTPRequestHandler
-from urllib.parse import urlparse
+import socket
+import threading
+import json
+import time
+import os
+from datetime import datetime
 
-DEFAULT_HOST = "0.0.0.0"
-DEFAULT_PORT = 60000
-HEARTBEAT_TIMEOUT = 20  # seconds
-
-def read_json_line(sock):
-    buff = b""
-    while True:
-        ch = sock.recv(1)
-        if not ch:
-            raise ConnectionError("socket closed")
-        if ch == b"\n":
-            break
-        buff += ch
-    return json.loads(buff.decode("utf-8"))
-
-class Server:
-    def __init__(self, host=DEFAULT_HOST, port=DEFAULT_PORT, dashboard_port=8000):
+class ThreadedNetworkServer:
+    def __init__(self, host='127.0.0.1', port=9000):
         self.host = host
         self.port = port
-        self.dashboard_port = dashboard_port
-        ensure_dir("data")
-        self.nodes = load_json_file(NODES_FILE) or {}
-        self.files = load_json_file(FILES_FILE) or {}
-        self.lock = threading.Lock()
-        self.sock = None
-
-    def persist(self):
-        with self.lock:
-            save_json_file(NODES_FILE, self.nodes)
-            save_json_file(FILES_FILE, self.files)
-
+        self.nodes = {}  # {node_id: {info}}
+        self.running = True
+        self.server_socket = None
+        self.ip_pool = self._generate_class_a_ips()
+        self.mac_pool = []
+        self.total_storage = 2 * 1024 * 1024 * 1024  # 2GB
+        self.storage_dir = "distributed_storage"
+        
+        # Create storage directory
+        if not os.path.exists(self.storage_dir):
+            os.makedirs(self.storage_dir)
+    
+    def _generate_class_a_ips(self):
+        """Generate Class A IP addresses (10.0.0.0 to 10.255.255.255)"""
+        ips = []
+        for i in range(1, 256):
+            for j in range(0, 256):
+                ips.append(f"10.0.{i}.{j}")
+        return ips
+    
+    def _generate_mac_address(self):
+        """Generate a random MAC address"""
+        return ':'.join(['%02x' % random.randint(0, 255) for _ in range(6)])
+    
     def start(self):
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.sock.bind((self.host, self.port))
-        self.sock.listen(200)
-        print(f"[server] listening on {self.host}:{self.port}")
-        print(f"[server] dashboard at http://127.0.0.1:{self.dashboard_port}/")
-        threading.Thread(target=self._accept_loop, daemon=True).start()
-        threading.Thread(target=self._cleanup_loop, daemon=True).start()
-        threading.Thread(target=self._dashboard, daemon=True).start()
+        """Start the threaded network server"""
         try:
-            self._operator_loop()
-        finally:
-            self.persist()
-
-    def _accept_loop(self):
-        while True:
-            client, addr = self.sock.accept()
-            threading.Thread(target=self._handle_connection, args=(client, addr), daemon=True).start()
-
-    def _cleanup_loop(self):
-        while True:
-            time.sleep(5)
-            now = time.time()
-            changed = False
-            with self.lock:
-                for nid, meta in list(self.nodes.items()):
-                    if meta.get("connected") and (now - meta.get("last_seen", 0) > HEARTBEAT_TIMEOUT):
-                        print(f"[server] heartbeat timeout for {nid}; marking offline")
-                        self.nodes[nid]["connected"] = False
-                        changed = True
-            if changed:
-                self.persist()
-
-    def _handle_connection(self, client, addr):
-        node_id = None
-        try:
-            header = read_json_line(client)
-            typ = header.get("type")
-            if typ == "register":
-                meta = header.get("meta", {})
-                node_id = meta.get("node_id")
-                node_host = meta.get("host")
-                node_port = meta.get("port")
-                with self.lock:
-                    if node_id not in self.nodes:
-                        ip = f"10.0.0.{len(self.nodes)+2}"
-                        mac = gen_mac()
-                        self.nodes[node_id] = {"host": node_host, "port": node_port, "ip": ip, "mac": mac, "connected": True, "last_seen": time.time()}
-                    else:
-                        self.nodes[node_id].update({"host": node_host, "port": node_port, "connected": True, "last_seen": time.time()})
-                    meta_assigned = {"ip": self.nodes[node_id]["ip"], "mac": self.nodes[node_id]["mac"]}
-                client.sendall(to_json({"type":"register_ack", "assigned": meta_assigned}))
-                print(f"[server] registered {node_id} @ {node_host}:{node_port} ip={meta_assigned['ip']} mac={meta_assigned['mac']}")
-                self.persist()
-            else:
-                client.close()
-                return
-
-            while True:
-                hdr = read_json_line(client)
-                t = hdr.get("type")
-                if t == "heartbeat":
-                    with self.lock:
-                        if node_id in self.nodes:
-                            self.nodes[node_id]["last_seen"] = time.time()
-                            self.nodes[node_id]["connected"] = True
-                            self.persist()
-                elif t == "register_file":
-                    fid = hdr["file_id"]; fname = hdr["file_name"]; size = hdr["size"]; chunks = hdr["chunks"]
-                    with self.lock:
-                        self.files[fid] = {"file_name": fname, "owner": node_id, "size": size, "chunks_total": chunks, "nodes_have": [node_id]}
-                    client.sendall(to_json({"type":"register_file_ack", "file_id": fid}))
-                    print(f"[server] file registered: {fname} id={fid} owner={node_id}")
-                    self.persist()
-                elif t == "nodes_list_request":
-                    with self.lock:
-                        client.sendall(to_json({"type":"nodes_list", "nodes": self.nodes}))
-                elif t == "request_peer":
-                    target = hdr.get("target")
-                    with self.lock:
-                        tgt = self.nodes.get(target)
-                    if not tgt or not tgt.get("connected"):
-                        client.sendall(to_json({"type":"peer_response", "ok": False, "reason": "target offline or unknown"}))
-                    else:
-                        client.sendall(to_json({"type":"peer_response", "ok": True, "host": tgt["host"], "port": tgt["port"]}))
-                elif t == "announce_have_chunk":
-                    fid = hdr.get("file_id")
-                    seq = hdr.get("seq")
-                    with self.lock:
-                        if fid in self.files:
-                            if node_id not in self.files[fid].get("nodes_have", []):
-                                self.files[fid].setdefault("nodes_have", []).append(node_id)
-                    client.sendall(to_json({"type":"announce_ack", "file_id": fid, "seq": seq}))
-                    self.persist()
-                elif t == "disconnect":
-                    print(f"[server] node {node_id} requested disconnect")
-                    with self.lock:
-                        if node_id in self.nodes:
-                            self.nodes[node_id]["connected"] = False
-                    self.persist()
-                    break
-                else:
-                    pass
-
-        except ConnectionError:
-            print(f"[server] connection closed for {node_id}")
-            with self.lock:
-                if node_id and node_id in self.nodes:
-                    self.nodes[node_id]["connected"] = False
-                    self.nodes[node_id]["last_seen"] = time.time()
-            self.persist()
+            self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self.server_socket.bind((self.host, self.port))
+            self.server_socket.listen(10)
+            
+            print(f"\n{'='*60}")
+            print(f"  THREADED NETWORK SERVER")
+            print(f"{'='*60}")
+            print(f"  Server started on {self.host}:{self.port}")
+            print(f"  Total Storage: 2GB")
+            print(f"  Storage Directory: {self.storage_dir}")
+            print(f"{'='*60}\n")
+            
+            # Start listener thread
+            listener_thread = threading.Thread(target=self._listen_for_nodes)
+            listener_thread.daemon = True
+            listener_thread.start()
+            
+            # Start command interface
+            self._command_interface()
+            
         except Exception as e:
-            print("[server] handler error:", e)
-        finally:
+            print(f"Error starting server: {e}")
+    
+    def _listen_for_nodes(self):
+        """Listen for incoming node connections"""
+        while self.running:
             try:
-                client.close()
+                self.server_socket.settimeout(1.0)
+                client_socket, address = self.server_socket.accept()
+                thread = threading.Thread(target=self._handle_node, args=(client_socket, address))
+                thread.daemon = True
+                thread.start()
+            except socket.timeout:
+                continue
+            except Exception as e:
+                if self.running:
+                    print(f"Error accepting connection: {e}")
+    
+    def _handle_node(self, client_socket, address):
+        """Handle communication with a connected node"""
+        try:
+            # Receive registration data
+            data = client_socket.recv(4096).decode()
+            registration = json.loads(data)
+            
+            node_id = registration['node_id']
+            
+            # Assign resources
+            assigned_ip = self.ip_pool.pop(0) if self.ip_pool else f"10.0.0.{len(self.nodes)}"
+            assigned_mac = self._generate_mac_address()
+            storage_capacity = self.total_storage // 10  # Divide storage among nodes
+            
+            # Create node storage directory
+            node_storage_path = os.path.join(self.storage_dir, f"node_{node_id}")
+            if not os.path.exists(node_storage_path):
+                os.makedirs(node_storage_path)
+            
+            # Store node info
+            self.nodes[node_id] = {
+                'ip': assigned_ip,
+                'mac': assigned_mac,
+                'socket': client_socket,
+                'address': address,
+                'storage_capacity': storage_capacity,
+                'storage_path': node_storage_path,
+                'connected_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                'status': 'active'
+            }
+            
+            # Send assignment back to node
+            response = {
+                'status': 'registered',
+                'ip': assigned_ip,
+                'mac': assigned_mac,
+                'storage_capacity': storage_capacity,
+                'storage_path': node_storage_path
+            }
+            client_socket.send(json.dumps(response).encode())
+            
+            print(f"\n[REGISTRATION] Node {node_id} registered successfully")
+            print(f"  ├─ IP: {assigned_ip}")
+            print(f"  ├─ MAC: {assigned_mac}")
+            print(f"  └─ Storage: {storage_capacity / (1024*1024):.2f} MB\n")
+            
+            # Keep connection alive and listen for status updates
+            while self.running:
+                try:
+                    client_socket.settimeout(5.0)
+                    msg = client_socket.recv(1024).decode()
+                    if not msg:
+                        break
+                    
+                    message = json.loads(msg)
+                    if message.get('type') == 'heartbeat':
+                        client_socket.send(b'ACK')
+                    elif message.get('type') == 'disconnect':
+                        break
+                        
+                except socket.timeout:
+                    continue
+                except:
+                    break
+            
+            # Node disconnected
+            if node_id in self.nodes:
+                self.nodes[node_id]['status'] = 'disconnected'
+                print(f"\n[DISCONNECTION] Node {node_id} has stopped\n")
+                
+        except Exception as e:
+            print(f"Error handling node: {e}")
+        finally:
+            client_socket.close()
+    
+    def _command_interface(self):
+        """Command line interface for the server"""
+        print("Type 'help' for available commands\n")
+        
+        while self.running:
+            try:
+                cmd = input("threaded-network> ").strip().lower()
+                
+                if cmd == 'quit':
+                    self._quit()
+                elif cmd == 'nodes':
+                    self._show_nodes()
+                elif cmd == 'files':
+                    self._show_files()
+                elif cmd == 'cloud':
+                    self._show_cloud()
+                elif cmd == 'stats':
+                    self._show_stats()
+                elif cmd == 'status':
+                    self._show_status()
+                elif cmd == 'help':
+                    self._show_help()
+                else:
+                    print(f"Unknown command: {cmd}. Type 'help' for available commands.")
+                    
+            except KeyboardInterrupt:
+                print("\n")
+                self._quit()
+            except Exception as e:
+                print(f"Error: {e}")
+    
+    def _show_help(self):
+        """Show available commands"""
+        print("\n" + "="*60)
+        print("  AVAILABLE COMMANDS")
+        print("="*60)
+        print("  nodes    - Show all registered nodes")
+        print("  files    - Show all files in distributed storage")
+        print("  cloud    - Show cloud storage overview")
+        print("  stats    - Show system statistics")
+        print("  status   - Show server status")
+        print("  quit     - Shutdown the server")
+        print("="*60 + "\n")
+    
+    def _show_nodes(self):
+        """Display all registered nodes"""
+        print("\n" + "="*80)
+        print(f"  REGISTERED NODES ({len(self.nodes)} total)")
+        print("="*80)
+        
+        if not self.nodes:
+            print("  No nodes registered yet.")
+        else:
+            for node_id, info in self.nodes.items():
+                status_symbol = "●" if info['status'] == 'active' else "○"
+                print(f"\n  {status_symbol} Node {node_id}")
+                print(f"    ├─ IP Address: {info['ip']}")
+                print(f"    ├─ MAC Address: {info['mac']}")
+                print(f"    ├─ Storage: {info['storage_capacity'] / (1024*1024):.2f} MB")
+                print(f"    ├─ Status: {info['status']}")
+                print(f"    └─ Connected: {info['connected_at']}")
+        
+        print("="*80 + "\n")
+    
+    def _show_files(self):
+        """Show all files in distributed storage"""
+        print("\n" + "="*80)
+        print("  DISTRIBUTED FILES")
+        print("="*80)
+        
+        total_files = 0
+        for node_id, info in self.nodes.items():
+            storage_path = info['storage_path']
+            if os.path.exists(storage_path):
+                files = os.listdir(storage_path)
+                if files:
+                    print(f"\n  Node {node_id} ({info['ip']}):")
+                    for f in files:
+                        file_path = os.path.join(storage_path, f)
+                        size = os.path.getsize(file_path)
+                        print(f"    ├─ {f} ({size} bytes)")
+                        total_files += 1
+        
+        if total_files == 0:
+            print("  No files in distributed storage yet.")
+        
+        print(f"\n  Total Files: {total_files}")
+        print("="*80 + "\n")
+    
+    def _show_cloud(self):
+        """Show cloud storage overview"""
+        print("\n" + "="*80)
+        print("  CLOUD STORAGE OVERVIEW")
+        print("="*80)
+        
+        active_nodes = sum(1 for n in self.nodes.values() if n['status'] == 'active')
+        total_capacity = sum(n['storage_capacity'] for n in self.nodes.values())
+        
+        print(f"  Total Capacity: {self.total_storage / (1024*1024*1024):.2f} GB")
+        print(f"  Allocated: {total_capacity / (1024*1024):.2f} MB")
+        print(f"  Active Nodes: {active_nodes}/{len(self.nodes)}")
+        print(f"  Storage Directory: {os.path.abspath(self.storage_dir)}")
+        print("="*80 + "\n")
+    
+    def _show_stats(self):
+        """Show system statistics"""
+        print("\n" + "="*80)
+        print("  SYSTEM STATISTICS")
+        print("="*80)
+        
+        active = sum(1 for n in self.nodes.values() if n['status'] == 'active')
+        disconnected = len(self.nodes) - active
+        
+        print(f"  Total Nodes: {len(self.nodes)}")
+        print(f"  Active Nodes: {active}")
+        print(f"  Disconnected Nodes: {disconnected}")
+        print(f"  Available IPs: {len(self.ip_pool)}")
+        print(f"  Server Uptime: Running")
+        print("="*80 + "\n")
+    
+    def _show_status(self):
+        """Show server status"""
+        print("\n" + "="*80)
+        print("  SERVER STATUS")
+        print("="*80)
+        print(f"  Host: {self.host}")
+        print(f"  Port: {self.port}")
+        print(f"  Status: Running")
+        print(f"  Registered Nodes: {len(self.nodes)}")
+        print("="*80 + "\n")
+    
+    def _quit(self):
+        """Shutdown the server"""
+        print("\nShutting down server...")
+        self.running = False
+        
+        # Close all node connections
+        for node_id, info in self.nodes.items():
+            try:
+                info['socket'].close()
             except:
                 pass
-
-    def _operator_loop(self):
-        print("server> commands: nodes | files | stats | status <node_id> | quit")
-        while True:
-            cmd = input("server> ").strip()
-            if not cmd:
-                continue
-            if cmd == "quit":
-                print("[server] shutting down")
-                self.persist()
-                os._exit(0)
-            elif cmd == "nodes":
-                with self.lock:
-                    active = {k:v for k,v in self.nodes.items() if v.get("connected")}
-                    if not active:
-                        print("No active nodes")
-                    for nid, v in active.items():
-                        print(f"✅ {nid} | {v['host']}:{v['port']} | IP={v['ip']} MAC={v['mac']}")
-            elif cmd == "files":
-                with self.lock:
-                    if not self.files:
-                        print("No files registered")
-                    for fid, m in self.files.items():
-                        print(f"{fid} -> {m['file_name']} owner={m['owner']} size={m['size']} chunks={m['chunks_total']} nodes={m.get('nodes_have', [])}")
-            elif cmd.startswith("status"):
-                parts = cmd.split()
-                if len(parts) < 2:
-                    print("usage: status <node_id>")
-                    continue
-                nid = parts[1]
-                with self.lock:
-                    if nid not in self.nodes:
-                        print("no such node")
-                    else:
-                        print(json.dumps(self.nodes[nid], indent=2))
-            elif cmd == "stats":
-                with self.lock:
-                    total_nodes = len(self.nodes)
-                    connected = sum(1 for v in self.nodes.values() if v.get("connected"))
-                    total_files = len(self.files)
-                    print(f"nodes: {connected}/{total_nodes} active, files: {total_files}")
-            else:
-                print("unknown command")
-
-    def _dashboard(self):
-        class Handler(BaseHTTPRequestHandler):
-            def do_GET(self):
-                parsed = urlparse(self.path)
-                if parsed.path == "/":
-                    self.send_response(200)
-                    self.send_header("Content-Type", "text/html")
-                    self.end_headers()
-                    html = "<html><head><title>Server Dashboard</title></head><body>"
-                    html += "<h1>Server Dashboard</h1>"
-                    html += "<ul>"
-                    html += "<li><a href='/nodes'>Nodes (JSON)</a></li>"
-                    html += "<li><a href='/files'>Files (JSON)</a></li>"
-                    html += "</ul>"
-                    html += "</body></html>"
-                    self.wfile.write(html.encode())
-                elif parsed.path == "/nodes":
-                    with self.lock:
-                        data = json.dumps(self.nodes, indent=2)
-                    self.send_response(200)
-                    self.send_header("Content-Type", "application/json")
-                    self.end_headers()
-                    self.wfile.write(data.encode())
-                elif parsed.path == "/files":
-                    with self.lock:
-                        data = json.dumps(self.files, indent=2)
-                    self.send_response(200)
-                    self.send_header("Content-Type", "application/json")
-                    self.end_headers()
-                    self.wfile.write(data.encode())
-                else:
-                    self.send_response(404)
-                    self.end_headers()
-        server = HTTPServer(("0.0.0.0", self.dashboard_port), Handler)
-        server.serve_forever()
+        
+        if self.server_socket:
+            self.server_socket.close()
+        
+        print("Server stopped.\n")
+        exit(0)
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--host", default=DEFAULT_HOST)
-    parser.add_argument("--port", default=DEFAULT_PORT, type=int)
-    parser.add_argument("--dashboard-port", default=8000, type=int)
-    args = parser.parse_args()
-    s = Server(host=args.host, port=args.port, dashboard_port=args.dashboard_port)
-    s.start()
+    import random
+    server = ThreadedNetworkServer(host='127.0.0.1', port=9000)
+    server.start()
