@@ -1,0 +1,62 @@
+// Protocol Buffer Definition for Cloud Security with Firebase
+// Generate the skeleton and stub classes with:
+// python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. cloudsecurity.proto
+
+syntax = "proto3";
+
+package cloud;
+
+service UserService {
+  // Authentication services
+  rpc signup (SignupRequest) returns (Response);
+  rpc login (LoginRequest) returns (Response);
+  rpc verify_otp (OTPRequest) returns (Response);
+  rpc reset_password (EmailRequest) returns (Response);
+  
+  // User profile services
+  rpc get_user_profile (UIDRequest) returns (Response);
+  rpc update_user_profile (UpdateProfileRequest) returns (Response);
+}
+
+// Signup request with email, username, password, and optional phone
+message SignupRequest {
+  string login = 1;      // username
+  string email = 2;      // email address
+  string password = 3;   // password
+  string phone = 4;      // optional phone number
+}
+
+// Login request with username/email and password
+message LoginRequest {
+  string login = 1;      // username or email
+  string password = 2;   // password
+}
+
+// OTP verification request
+message OTPRequest {
+  string email = 1;      // user email
+  string otp = 2;        // 6-digit OTP code
+}
+
+// Email-only request (for password reset, etc.)
+message EmailRequest {
+  string email = 1;
+}
+
+// UID-only request (for getting profile)
+message UIDRequest {
+  string uid = 1;
+}
+
+// Update profile request
+message UpdateProfileRequest {
+  string uid = 1;        // user ID
+  string login = 2;      // new username (optional)
+  string email = 3;      // new email (optional)
+  string phone = 4;      // new phone (optional)
+}
+
+// Generic response message
+message Response {
+  string result = 1;
+}

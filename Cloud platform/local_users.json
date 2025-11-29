@@ -1,0 +1,12 @@
+{
+  "local_1": {
+    "uid": "local_1",
+    "username": "Pablo123",
+    "email": "sahatiomela@gmail.com",
+    "password_hash": "$2b$12$ryfP6gEO9rFDNjDVpZxKLObvQl8NGQ/8IzMTzuhEEaLQzfpEHu4Dq",
+    "phone": "",
+    "created_at": "2025-11-29T23:28:38.925135",
+    "email_verified": false,
+    "two_factor_enabled": true
+  }
+}
