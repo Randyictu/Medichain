@@ -5,11 +5,9 @@ import time
 import signal
 import platform
 
-class DistributedSystemLauncher:
+class IntegratedSystemLauncher:
     def __init__(self):
-        self.processes = []
-        self.server_process = None
-        self.node_processes = {}
+        self.processes = {}
         self.running = True
         
     def clear_screen(self):
@@ -20,9 +18,9 @@ class DistributedSystemLauncher:
         """Display the system banner"""
         self.clear_screen()
         print("\n" + "="*70)
-        print("  DISTRIBUTED NETWORK SYSTEM - MAIN LAUNCHER")
+        print("  INTEGRATED CLOUD & DISTRIBUTED SYSTEM LAUNCHER")
         print("="*70)
-        print("  A complete distributed system with threaded network and nodes")
+        print("  Cloud Security + Distributed File Storage")
         print("="*70 + "\n")
     
     def show_menu(self):
@@ -30,104 +28,42 @@ class DistributedSystemLauncher:
         print("\n" + "-"*70)
         print("  MAIN MENU")
         print("-"*70)
-        print("  1. Start Threaded Network Server")
-        print("  2. Start a New Node")
-        print("  3. View Running Processes")
-        print("  4. Stop Server")
-        print("  5. Stop a Node")
-        print("  6. Stop All Nodes")
-        print("  7. Stop Everything and Exit")
-        print("  8. Show System Status")
-        print("  9. Help")
+        print("  CLOUD SECURITY (Authentication & User Management)")
+        print("  1. Start Cloud Security Server")
+        print("  2. Start Cloud Security Client")
+        print("  3. Stop Cloud Security Server")
+        print("")
+        print("  DISTRIBUTED STORAGE (File System)")
+        print("  4. Start Threaded Network Server")
+        print("  5. Start Storage Node")
+        print("  6. View Running Nodes")
+        print("  7. Stop Threaded Network Server")
+        print("  8. Stop All Nodes")
+        print("")
+        print("  SYSTEM MANAGEMENT")
+        print("  9. Show System Status")
+        print("  10. Stop Everything and Exit")
         print("  0. Exit (keep processes running)")
         print("-"*70)
     
-    def start_server(self):
-        """Start the threaded network server"""
-        if self.server_process:
-            print("\n[ERROR] Server is already running!")
-            return
+    def start_process(self, name, script, args=[]):
+        """Generic process starter"""
+        if name in self.processes and self.processes[name].poll() is None:
+            print(f"\n[ERROR] {name} is already running!")
+            return False
         
         try:
-            print("\n[INFO] Starting Threaded Network Server...")
+            print(f"\n[INFO] Starting {name}...")
+            
+            cmd = [sys.executable, script] + args
             
             if platform.system() == 'Windows':
-                # Windows
-                self.server_process = subprocess.Popen(
-                    [sys.executable, 'threaded_network.py'],
-                    creationflags=subprocess.CREATE_NEW_CONSOLE
-                )
+                process = subprocess.Popen(cmd, creationflags=subprocess.CREATE_NEW_CONSOLE)
             else:
-                # Linux/Mac - try different terminal emulators
                 terminals = [
-                    ['gnome-terminal', '--', sys.executable, 'threaded_network.py'],
-                    ['xterm', '-e', sys.executable, 'threaded_network.py'],
-                    ['konsole', '-e', sys.executable, 'threaded_network.py'],
-                    ['xfce4-terminal', '-e', f'{sys.executable} threaded_network.py'],
-                ]
-                
-                launched = False
-                for term_cmd in terminals:
-                    try:
-                        self.server_process = subprocess.Popen(term_cmd)
-                        launched = True
-                        break
-                    except FileNotFoundError:
-                        continue
-                
-                if not launched:
-                    # Fallback: run in background
-                    print("[WARNING] No terminal emulator found. Running in background...")
-                    self.server_process = subprocess.Popen(
-                        [sys.executable, 'threaded_network.py'],
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE
-                    )
-            
-            time.sleep(2)  # Give server time to start
-            
-            if self.server_process.poll() is None:
-                print(f"[SUCCESS] Server started! PID: {self.server_process.pid}")
-            else:
-                print("[ERROR] Server failed to start!")
-                self.server_process = None
-                
-        except Exception as e:
-            print(f"[ERROR] Failed to start server: {e}")
-            self.server_process = None
-    
-    def start_node(self):
-        """Start a new node"""
-        if not self.server_process:
-            print("\n[ERROR] Please start the server first!")
-            return
-        
-        try:
-            node_id = input("\nEnter Node ID (e.g., 1, 2, 3...): ").strip()
-            
-            if not node_id:
-                print("[ERROR] Node ID cannot be empty!")
-                return
-            
-            if node_id in self.node_processes:
-                print(f"[ERROR] Node {node_id} is already running!")
-                return
-            
-            print(f"\n[INFO] Starting Node {node_id}...")
-            
-            if platform.system() == 'Windows':
-                # Windows
-                process = subprocess.Popen(
-                    [sys.executable, 'node.py', node_id],
-                    creationflags=subprocess.CREATE_NEW_CONSOLE
-                )
-            else:
-                # Linux/Mac
-                terminals = [
-                    ['gnome-terminal', '--', sys.executable, 'node.py', node_id],
-                    ['xterm', '-e', sys.executable, 'node.py', node_id],
-                    ['konsole', '-e', sys.executable, 'node.py', node_id],
-                    ['xfce4-terminal', '-e', f'{sys.executable} node.py {node_id}'],
+                    ['gnome-terminal', '--'] + cmd,
+                    ['xterm', '-e'] + cmd,
+                    ['konsole', '-e'] + cmd,
                 ]
                 
                 launched = False
@@ -140,135 +76,102 @@ class DistributedSystemLauncher:
                         continue
                 
                 if not launched:
-                    print("[WARNING] No terminal emulator found. Running in background...")
-                    process = subprocess.Popen(
-                        [sys.executable, 'node.py', node_id],
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE
-                    )
+                    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             
             time.sleep(1)
             
             if process.poll() is None:
-                self.node_processes[node_id] = process
-                print(f"[SUCCESS] Node {node_id} started! PID: {process.pid}")
+                self.processes[name] = process
+                print(f"[SUCCESS] {name} started! PID: {process.pid}")
+                return True
             else:
-                print(f"[ERROR] Node {node_id} failed to start!")
+                print(f"[ERROR] {name} failed to start!")
+                return False
                 
         except Exception as e:
-            print(f"[ERROR] Failed to start node: {e}")
+            print(f"[ERROR] Failed to start {name}: {e}")
+            return False
     
-    def view_processes(self):
-        """View all running processes"""
-        print("\n" + "="*70)
-        print("  RUNNING PROCESSES")
-        print("="*70)
-        
-        # Check server
-        if self.server_process:
-            status = "Running" if self.server_process.poll() is None else "Stopped"
-            print(f"\n  Server:")
-            print(f"    ├─ PID: {self.server_process.pid}")
-            print(f"    └─ Status: {status}")
-        else:
-            print("\n  Server: Not started")
-        
-        # Check nodes
-        if self.node_processes:
-            print(f"\n  Nodes ({len(self.node_processes)}):")
-            for node_id, process in self.node_processes.items():
-                status = "Running" if process.poll() is None else "Stopped"
-                print(f"    ├─ Node {node_id} - PID: {process.pid} - Status: {status}")
-        else:
-            print("\n  Nodes: None started")
-        
-        print("="*70)
-    
-    def stop_server(self):
-        """Stop the threaded network server"""
-        if not self.server_process:
-            print("\n[INFO] Server is not running")
+    def stop_process(self, name):
+        """Generic process stopper"""
+        if name not in self.processes:
+            print(f"\n[INFO] {name} is not running")
             return
         
         try:
-            print("\n[INFO] Stopping server...")
-            self.server_process.terminate()
-            time.sleep(1)
-            
-            if self.server_process.poll() is None:
-                self.server_process.kill()
-            
-            print("[SUCCESS] Server stopped")
-            self.server_process = None
-            
-        except Exception as e:
-            print(f"[ERROR] Failed to stop server: {e}")
-    
-    def stop_node(self):
-        """Stop a specific node"""
-        if not self.node_processes:
-            print("\n[INFO] No nodes are running")
-            return
-        
-        self.view_processes()
-        node_id = input("\nEnter Node ID to stop: ").strip()
-        
-        if node_id not in self.node_processes:
-            print(f"[ERROR] Node {node_id} is not running")
-            return
-        
-        try:
-            print(f"\n[INFO] Stopping Node {node_id}...")
-            process = self.node_processes[node_id]
+            print(f"\n[INFO] Stopping {name}...")
+            process = self.processes[name]
             process.terminate()
             time.sleep(1)
             
             if process.poll() is None:
                 process.kill()
             
-            del self.node_processes[node_id]
-            print(f"[SUCCESS] Node {node_id} stopped")
+            del self.processes[name]
+            print(f"[SUCCESS] {name} stopped")
             
         except Exception as e:
-            print(f"[ERROR] Failed to stop node: {e}")
+            print(f"[ERROR] Failed to stop {name}: {e}")
+    
+    def start_cloud_server(self):
+        """Start Cloud Security Server"""
+        return self.start_process("Cloud Security Server", "cloud.py")
+    
+    def start_cloud_client(self):
+        """Start Cloud Security Client"""
+        return self.start_process("Cloud Security Client", "client.py")
+    
+    def start_threaded_network(self):
+        """Start Threaded Network Server"""
+        return self.start_process("Threaded Network Server", "threaded.py")
+    
+    def start_storage_node(self):
+        """Start a new storage node"""
+        node_id = input("\nEnter Node ID (e.g., 1, 2, 3...): ").strip()
+        
+        if not node_id:
+            print("[ERROR] Node ID cannot be empty!")
+            return
+        
+        node_name = f"Node_{node_id}"
+        
+        if node_name in self.processes and self.processes[node_name].poll() is None:
+            print(f"[ERROR] Node {node_id} is already running!")
+            return
+        
+        return self.start_process(node_name, "node.py", [node_id])
+    
+    def view_nodes(self):
+        """View all running nodes"""
+        print("\n" + "="*70)
+        print("  RUNNING STORAGE NODES")
+        print("="*70)
+        
+        node_processes = {k: v for k, v in self.processes.items() if k.startswith("Node_")}
+        
+        if not node_processes:
+            print("  No storage nodes running")
+        else:
+            for node_name, process in node_processes.items():
+                status = "Running" if process.poll() is None else "Stopped"
+                print(f"  ├─ {node_name} - PID: {process.pid} - Status: {status}")
+        
+        print("="*70)
     
     def stop_all_nodes(self):
-        """Stop all running nodes"""
-        if not self.node_processes:
+        """Stop all storage nodes"""
+        node_processes = {k: v for k, v in self.processes.items() if k.startswith("Node_")}
+        
+        if not node_processes:
             print("\n[INFO] No nodes are running")
             return
         
-        print(f"\n[INFO] Stopping {len(self.node_processes)} node(s)...")
+        print(f"\n[INFO] Stopping {len(node_processes)} node(s)...")
         
-        for node_id, process in list(self.node_processes.items()):
-            try:
-                process.terminate()
-                time.sleep(0.5)
-                
-                if process.poll() is None:
-                    process.kill()
-                
-                print(f"  ├─ Node {node_id} stopped")
-                
-            except Exception as e:
-                print(f"  ├─ Node {node_id} error: {e}")
+        for node_name in list(node_processes.keys()):
+            self.stop_process(node_name)
         
-        self.node_processes.clear()
         print("[SUCCESS] All nodes stopped")
-    
-    def stop_everything(self):
-        """Stop all processes"""
-        print("\n[INFO] Stopping all processes...")
-        
-        # Stop all nodes
-        if self.node_processes:
-            self.stop_all_nodes()
-        
-        # Stop server
-        if self.server_process:
-            self.stop_server()
-        
-        print("\n[SUCCESS] All processes stopped")
     
     def show_status(self):
         """Show system status"""
@@ -276,79 +179,82 @@ class DistributedSystemLauncher:
         print("  SYSTEM STATUS")
         print("="*70)
         
-        # Server status
-        if self.server_process:
-            server_running = self.server_process.poll() is None
-            status = "🟢 Running" if server_running else "🔴 Stopped"
-            print(f"\n  Server: {status}")
-            if server_running:
-                print(f"    ├─ PID: {self.server_process.pid}")
-                print(f"    ├─ Host: 127.0.0.1")
-                print(f"    └─ Port: 9000")
+        # Cloud Security Status
+        print("\n  CLOUD SECURITY:")
+        cloud_server = self.processes.get("Cloud Security Server")
+        if cloud_server:
+            status = "🟢 Running" if cloud_server.poll() is None else "🔴 Stopped"
+            print(f"    ├─ Server: {status} (PID: {cloud_server.pid})")
         else:
-            print("\n  Server: 🔴 Not Started")
+            print("    ├─ Server: 🔴 Not Started")
         
-        # Nodes status
-        active_nodes = sum(1 for p in self.node_processes.values() if p.poll() is None)
-        total_nodes = len(self.node_processes)
+        cloud_client = self.processes.get("Cloud Security Client")
+        if cloud_client:
+            status = "🟢 Running" if cloud_client.poll() is None else "🔴 Stopped"
+            print(f"    └─ Client: {status} (PID: {cloud_client.pid})")
+        else:
+            print("    └─ Client: 🔴 Not Started")
         
-        print(f"\n  Nodes: {active_nodes}/{total_nodes} Active")
+        # Distributed Storage Status
+        print("\n  DISTRIBUTED STORAGE:")
+        threaded_server = self.processes.get("Threaded Network Server")
+        if threaded_server:
+            status = "🟢 Running" if threaded_server.poll() is None else "🔴 Stopped"
+            print(f"    ├─ Server: {status} (PID: {threaded_server.pid})")
+        else:
+            print("    ├─ Server: 🔴 Not Started")
         
-        if self.node_processes:
-            for node_id, process in self.node_processes.items():
+        node_processes = {k: v for k, v in self.processes.items() if k.startswith("Node_")}
+        active_nodes = sum(1 for p in node_processes.values() if p.poll() is None)
+        print(f"    └─ Nodes: {active_nodes}/{len(node_processes)} Active")
+        
+        if node_processes:
+            for node_name, process in node_processes.items():
                 running = process.poll() is None
                 status = "🟢" if running else "🔴"
-                print(f"    ├─ {status} Node {node_id} (PID: {process.pid})")
-        
-        # Storage info
-        if os.path.exists('distributed_storage'):
-            storage_dirs = [d for d in os.listdir('distributed_storage') 
-                          if os.path.isdir(os.path.join('distributed_storage', d))]
-            print(f"\n  Storage:")
-            print(f"    ├─ Directory: distributed_storage/")
-            print(f"    └─ Node Directories: {len(storage_dirs)}")
+                print(f"        ├─ {status} {node_name} (PID: {process.pid})")
         
         print("="*70)
+    
+    def stop_everything(self):
+        """Stop all processes"""
+        print("\n[INFO] Stopping all processes...")
+        
+        for name in list(self.processes.keys()):
+            self.stop_process(name)
+        
+        print("\n[SUCCESS] All processes stopped")
     
     def show_help(self):
         """Show help information"""
         print("\n" + "="*70)
-        print("  HELP - DISTRIBUTED SYSTEM LAUNCHER")
+        print("  INTEGRATED SYSTEM HELP")
         print("="*70)
         print("\n  WORKFLOW:")
-        print("    1. Start the server first (Option 1)")
-        print("    2. Create multiple nodes (Option 2)")
-        print("    3. Each node opens in a separate terminal window")
-        print("    4. Use node commands in their respective terminals")
-        print("    5. Monitor from this launcher or server terminal")
+        print("    1. Start Cloud Security Server (Option 1)")
+        print("    2. Start Cloud Security Client (Option 2) - For authentication")
+        print("    3. Start Threaded Network Server (Option 4)")
+        print("    4. Start Storage Nodes (Option 5) - Create multiple nodes")
+        print("    5. Use nodes for distributed file storage")
+        print("\n  FEATURES:")
+        print("    - User Authentication & Management (Cloud Security)")
+        print("    - Two-Factor Authentication with OTP")
+        print("    - Distributed File Storage (Threaded Network)")
+        print("    - Multiple Storage Nodes with Load Balancing")
+        print("    - 2GB Total Distributed Storage")
         print("\n  REQUIREMENTS:")
-        print("    - threaded_network.py must be in the same directory")
-        print("    - node.py must be in the same directory")
+        print("    - cloud.py, client.py for authentication")
+        print("    - threaded.py, node.py for storage")
         print("    - Python 3.7 or higher")
-        print("\n  NODE COMMANDS:")
-        print("    Type 'help' in any node terminal to see available commands")
-        print("\n  SERVER COMMANDS:")
-        print("    Type 'help' in server terminal to see available commands")
-        print("\n  TIPS:")
-        print("    - Always start the server before creating nodes")
-        print("    - Each node needs a unique ID (1, 2, 3, etc.)")
-        print("    - You can create 5+ nodes simultaneously")
-        print("    - Storage is distributed across all nodes (2GB total)")
-        print("\n  TROUBLESHOOTING:")
-        print("    - If terminals don't open, check terminal emulator installation")
-        print("    - On Windows, use Command Prompt or PowerShell")
-        print("    - On Linux, ensure gnome-terminal, xterm, or konsole is installed")
         print("="*70)
     
     def run(self):
         """Main launcher loop"""
         self.show_banner()
-        
-        # Register signal handler for graceful shutdown
         signal.signal(signal.SIGINT, self.signal_handler)
         
-        print("Welcome to the Distributed System Launcher!")
-        print("This tool helps you manage the server and nodes easily.\n")
+        print("Welcome to the Integrated Cloud & Distributed System!")
+        print("This combines authentication with distributed storage.\n")
         
         while self.running:
             try:
@@ -356,32 +262,34 @@ class DistributedSystemLauncher:
                 choice = input("\nEnter your choice: ").strip()
                 
                 if choice == '1':
-                    self.start_server()
+                    self.start_cloud_server()
                 elif choice == '2':
-                    self.start_node()
+                    self.start_cloud_client()
                 elif choice == '3':
-                    self.view_processes()
+                    self.stop_process("Cloud Security Server")
                 elif choice == '4':
-                    self.stop_server()
+                    self.start_threaded_network()
                 elif choice == '5':
-                    self.stop_node()
+                    self.start_storage_node()
                 elif choice == '6':
-                    self.stop_all_nodes()
+                    self.view_nodes()
                 elif choice == '7':
+                    self.stop_process("Threaded Network Server")
+                elif choice == '8':
+                    self.stop_all_nodes()
+                elif choice == '9':
+                    self.show_status()
+                elif choice == '10':
                     self.stop_everything()
                     self.running = False
                     print("\n[INFO] Exiting launcher...")
-                elif choice == '8':
-                    self.show_status()
-                elif choice == '9':
-                    self.show_help()
                 elif choice == '0':
-                    print("\n[INFO] Exiting launcher (processes will continue running)...")
+                    print("\n[INFO] Exiting launcher (processes continue)...")
                     self.running = False
                 else:
-                    print("\n[ERROR] Invalid choice! Please try again.")
+                    print("\n[ERROR] Invalid choice!")
                 
-                if self.running and choice in ['1', '2', '4', '5', '6']:
+                if self.running and choice in ['1', '2', '3', '4', '5', '7', '8']:
                     input("\nPress Enter to continue...")
                     
             except KeyboardInterrupt:
@@ -391,11 +299,11 @@ class DistributedSystemLauncher:
                     self.stop_everything()
                     self.running = False
             except Exception as e:
-                print(f"\n[ERROR] An error occurred: {e}")
+                print(f"\n[ERROR] {e}")
                 input("\nPress Enter to continue...")
         
         print("\n" + "="*70)
-        print("  Thank you for using the Distributed System Launcher!")
+        print("  Thank you for using the Integrated System!")
         print("="*70 + "\n")
     
     def signal_handler(self, sig, frame):
@@ -408,16 +316,16 @@ class DistributedSystemLauncher:
 
 def main():
     """Main entry point"""
-    # Check if required files exist
-    if not os.path.exists('threaded.py'):
-        print("[ERROR] threaded.py not found in current directory!")
+    required_files = ['cloud.py', 'client.py', 'threaded.py', 'node.py']
+    missing = [f for f in required_files if not os.path.exists(f)]
+    
+    if missing:
+        print("[ERROR] Missing required files:")
+        for f in missing:
+            print(f"  - {f}")
         sys.exit(1)
     
-    if not os.path.exists('node.py'):
-        print("[ERROR] node.py not found in current directory!")
-        sys.exit(1)
-    
-    launcher = DistributedSystemLauncher()
+    launcher = IntegratedSystemLauncher()
     launcher.run()
 
 if __name__ == "__main__":
