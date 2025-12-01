@@ -6,6 +6,7 @@ import threading
 import time
 import sys
 from datetime import datetime
+from tqdm import tqdm
 
 class DistributedNode:
     def __init__(self, node_id, server_host='127.0.0.1', server_port=9000):
@@ -39,6 +40,7 @@ class DistributedNode:
             
             # Send registration
             registration = {
+                'type': 'register',
                 'node_id': self.node_id,
                 'timestamp': datetime.now().isoformat()
             }
@@ -92,6 +94,115 @@ class DistributedNode:
             except:
                 break
     
+    def _request_file_replication(self, filename):
+        """Request server to replicate file to all nodes"""
+        try:
+            # Create a separate socket for replication request
+            replication_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            replication_socket.connect((self.server_host, self.server_port))
+            replication_socket.settimeout(10.0)
+            
+            # Send registration first
+            registration = {
+                'type': 'register',
+                'node_id': f"{self.node_id}_replication",
+                'timestamp': datetime.now().isoformat()
+            }
+            replication_socket.send(json.dumps(registration).encode())
+            
+            # Receive and discard registration response
+            replication_socket.recv(4096)
+            
+            # Now send replication request
+            message = {
+                'type': 'replicate',
+                'node_id': self.node_id,
+                'filename': filename
+            }
+            replication_socket.send((json.dumps(message) + '\n').encode())
+            
+            # Wait for confirmation with timeout
+            response_data = b''
+            while True:
+                try:
+                    chunk = replication_socket.recv(1024)
+                    if not chunk:
+                        break
+                    response_data += chunk
+                    
+                    # Try to parse JSON
+                    try:
+                        result = json.loads(response_data.decode())
+                        if result.get('type') == 'replicate_response':
+                            replication_socket.close()
+                            return result.get('status') == 'replicated'
+                    except json.JSONDecodeError:
+                        # Not complete JSON yet, continue receiving
+                        continue
+                except socket.timeout:
+                    break
+            
+            replication_socket.close()
+            return False
+            
+        except Exception as e:
+            print(f"Error requesting replication: {e}")
+            return False
+    
+    def _sync_from_cloud(self):
+        """Sync all files from cloud storage to local view"""
+        try:
+            # Create a separate socket for sync request
+            sync_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sync_socket.connect((self.server_host, self.server_port))
+            sync_socket.settimeout(10.0)
+            
+            # Send registration first
+            registration = {
+                'type': 'register',
+                'node_id': f"{self.node_id}_sync",
+                'timestamp': datetime.now().isoformat()
+            }
+            sync_socket.send(json.dumps(registration).encode())
+            
+            # Receive and discard registration response
+            sync_socket.recv(4096)
+            
+            # Now send sync request
+            message = {
+                'type': 'sync',
+                'node_id': self.node_id
+            }
+            sync_socket.send(json.dumps(message).encode())
+            
+            # Receive file list
+            response_data = b''
+            while True:
+                try:
+                    chunk = sync_socket.recv(4096)
+                    if not chunk:
+                        break
+                    response_data += chunk
+                    
+                    # Try to parse JSON
+                    try:
+                        result = json.loads(response_data.decode())
+                        if 'files' in result:
+                            sync_socket.close()
+                            return result.get('files', [])
+                    except json.JSONDecodeError:
+                        # Not complete JSON yet, continue receiving
+                        continue
+                except socket.timeout:
+                    break
+            
+            sync_socket.close()
+            return []
+            
+        except Exception as e:
+            print(f"Error syncing: {e}")
+            return []
+    
     def start(self):
         """Start the node operating system"""
         if not self.connect_to_server():
@@ -127,6 +238,8 @@ class DistributedNode:
                     self._upload_file(args)
                 elif command == 'download':
                     self._download_file(args)
+                elif command == 'sync':
+                    self._sync_files()
                 elif command == 'send':
                     self._send_file(args)
                 elif command == 'transfer':
@@ -159,8 +272,9 @@ class DistributedNode:
         print("    addfile <filename> <content>  - Create a new file locally")
         print("    localfiles                    - List local files")
         print("    cloudfiles                    - List files in cloud storage")
-        print("    upload <filename>             - Upload file to cloud")
+        print("    upload <filename>             - Upload file to cloud (replicated)")
         print("    download <filename>           - Download file from cloud")
+        print("    sync                          - Sync cloud files to local")
         print("    ls [local|cloud]              - List files")
         print("    rm <filename> [local|cloud]   - Remove a file")
         print("\n  Network Operations:")
@@ -241,31 +355,23 @@ class DistributedNode:
         print("="*60 + "\n")
     
     def _show_cloud_files(self):
-        """List cloud files"""
+        """List cloud files (all replicated files)"""
         print("\n" + "="*60)
-        print(f"  CLOUD FILES (Node {self.node_id})")
+        print(f"  CLOUD FILES (Replicated Storage)")
         print("="*60)
         
-        if not os.path.exists(self.storage_path):
-            print("  No cloud storage directory")
-            print("="*60 + "\n")
-            return
-        
-        files = os.listdir(self.storage_path)
+        files = self._sync_from_cloud()
         
         if not files:
             print("  No files in cloud storage")
         else:
             for f in files:
-                file_path = os.path.join(self.storage_path, f)
-                if os.path.isfile(file_path):
-                    size = os.path.getsize(file_path)
-                    print(f"  ├─ {f} ({size} bytes)")
+                print(f"  ├─ {f['name']} ({f['size']} bytes) - Replicas: {f['replicas']}")
         
         print("="*60 + "\n")
     
     def _upload_file(self, args):
-        """Upload file from local to cloud storage"""
+        """Upload file from local to cloud storage with replication"""
         if len(args) < 1:
             print("Usage: upload <filename>")
             return
@@ -279,8 +385,32 @@ class DistributedNode:
             return
         
         try:
-            shutil.copy2(local_path, cloud_path)
-            print(f"File '{filename}' uploaded to cloud successfully")
+            file_size = os.path.getsize(local_path)
+            
+            print(f"\nUploading '{filename}' ({file_size} bytes) to cloud...")
+            
+            # Copy with progress bar
+            with open(local_path, 'rb') as src:
+                with open(cloud_path, 'wb') as dst:
+                    with tqdm(total=file_size, unit='B', unit_scale=True, desc="Upload Progress") as pbar:
+                        chunk_size = 8192
+                        while True:
+                            chunk = src.read(chunk_size)
+                            if not chunk:
+                                break
+                            dst.write(chunk)
+                            pbar.update(len(chunk))
+                            time.sleep(0.01)  # Simulate network delay
+            
+            print(f"✓ File uploaded to node storage")
+            
+            # Request replication to all nodes
+            print("Replicating to other nodes...")
+            if self._request_file_replication(filename):
+                print(f"✓ File '{filename}' replicated across all nodes successfully!")
+            else:
+                print("⚠ File uploaded but replication may have failed")
+                
         except Exception as e:
             print(f"Error uploading file: {e}")
     
@@ -299,10 +429,40 @@ class DistributedNode:
             return
         
         try:
-            shutil.copy2(cloud_path, local_path)
-            print(f"File '{filename}' downloaded to local storage successfully")
+            file_size = os.path.getsize(cloud_path)
+            
+            print(f"\nDownloading '{filename}' ({file_size} bytes) from cloud...")
+            
+            # Copy with progress bar
+            with open(cloud_path, 'rb') as src:
+                with open(local_path, 'wb') as dst:
+                    with tqdm(total=file_size, unit='B', unit_scale=True, desc="Download Progress") as pbar:
+                        chunk_size = 8192
+                        while True:
+                            chunk = src.read(chunk_size)
+                            if not chunk:
+                                break
+                            dst.write(chunk)
+                            pbar.update(len(chunk))
+                            time.sleep(0.01)  # Simulate network delay
+            
+            print(f"✓ File '{filename}' downloaded successfully!")
+            
         except Exception as e:
             print(f"Error downloading file: {e}")
+    
+    def _sync_files(self):
+        """Manually sync files from cloud"""
+        print("\nSyncing with cloud storage...")
+        files = self._sync_from_cloud()
+        print(f"✓ Found {len(files)} file(s) in cloud storage")
+        
+        for file_info in files:
+            cloud_path = os.path.join(self.storage_path, file_info['name'])
+            if os.path.exists(cloud_path):
+                print(f"  ├─ {file_info['name']} - Available")
+            else:
+                print(f"  ├─ {file_info['name']} - Not in local node storage")
     
     def _send_file(self, args):
         """Send file to another node"""
