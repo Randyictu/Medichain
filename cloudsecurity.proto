@@ -1,0 +1,48 @@
+syntax = "proto3";
+
+// Request and Response Messages
+message SignupRequest {
+    string login = 1;
+    string email = 2;
+    string password = 3;
+    string phone = 4;
+}
+
+message LoginRequest {
+    string login = 1;
+    string password = 2;
+}
+
+message OTPRequest {
+    string email = 1;
+    string otp = 2;
+}
+
+message EmailRequest {
+    string email = 1;
+}
+
+message UIDRequest {
+    string uid = 1;
+}
+
+message UpdateProfileRequest {
+    string uid = 1;
+    string login = 2;
+    string email = 3;
+    string phone = 4;
+}
+
+message Response {
+    string result = 1;
+}
+
+// User Service Definition
+service UserService {
+    rpc signup(SignupRequest) returns (Response);
+    rpc login(LoginRequest) returns (Response);
+    rpc verify_otp(OTPRequest) returns (Response);
+    rpc reset_password(EmailRequest) returns (Response);
+    rpc get_user_profile(UIDRequest) returns (Response);
+    rpc update_user_profile(UpdateProfileRequest) returns (Response);
+}
